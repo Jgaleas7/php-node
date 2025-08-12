@@ -51,11 +51,11 @@ impl Handler for Embed {
       std::fs::read_to_string(&full_path).map_err(|e| format!("failed to read script: {e}"))?;
 
     Python::with_gil(|py| -> PyResult<Response> {
-      let sys = py.import("sys")?;
-      let io = py.import("io")?;
+      let sys = py.import_bound("sys")?;
+      let io = py.import_bound("io")?;
       let buffer: Py<PyAny> = io.getattr("StringIO")?.call0()?.into();
       sys.setattr("stdout", buffer.bind(py))?;
-      py.run(&code, None, None)?;
+      py.run_bound(&code, None, None)?;
       let output: String = buffer.bind(py).call_method0("getvalue")?.extract()?;
       let resp = ResponseBuilder::new()
         .status(200)
