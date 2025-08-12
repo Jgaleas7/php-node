@@ -53,26 +53,6 @@ const response = await php.handleRequest(request)
 console.log(response.body.toString())
 ```
 
-## Python
-
-An experimental crate (`crates/python`) can execute Python scripts using [PyO3](https://pyo3.rs/).
-Requests are routed to scripts relative to a docroot and their standard output is
-returned as the response body. Node.js bindings are not yet available.
-
-```rust
-use lang_handler::RequestBuilder;
-use python::Embed;
-
-let embed = Embed::new("path/to/scripts");
-let request = RequestBuilder::new()
-  .method("GET")
-  .url("http://localhost/hello.py")
-  .build()
-  .unwrap();
-let response = embed.handle(request).unwrap();
-println!("{}", String::from_utf8_lossy(response.body()));
-```
-
 ## API
 
 ### `new Php(config)`
