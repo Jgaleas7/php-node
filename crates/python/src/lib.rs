@@ -47,16 +47,26 @@ impl Handler for Embed {
       return Err("path traversal attempt".to_string());
     }
 
-    let code =
+    let mut code =
       std::fs::read_to_string(&full_path).map_err(|e| format!("failed to read script: {e}"))?;
+    if !code.ends_with('\n') {
+      code.push('\n');
+    }
 
     Python::with_gil(|py| -> PyResult<Response> {
       let sys = py.import_bound("sys")?;
       let io = py.import_bound("io")?;
       let buffer: Py<PyAny> = io.getattr("StringIO")?.call0()?.into();
+      let old_stdout: Py<PyAny> = sys.getattr("stdout")?.into();
       sys.setattr("stdout", buffer.bind(py))?;
-      py.run_bound(&code, None, None)?;
-      let output: String = buffer.bind(py).call_method0("getvalue")?.extract()?;
+      let run_result = py.run_bound(&code, None, None);
+      let output_result: PyResult<String> = buffer
+        .bind(py)
+        .call_method0("getvalue")
+        .and_then(|o| o.extract());
+      sys.setattr("stdout", old_stdout.bind(py))?;
+      run_result?;
+      let output = output_result?;
       let resp = ResponseBuilder::new()
         .status(200)
         .body(output.as_bytes())
@@ -71,6 +81,7 @@ impl Handler for Embed {
 mod tests {
   use super::*;
   use lang_handler::{MockRootBuilder, RequestBuilder};
+  use pyo3::Python;
 
   #[test]
   fn runs_python_script() {
@@ -87,6 +98,30 @@ mod tests {
     let response = embed.handle(request).unwrap();
     assert_eq!(response.status(), 200);
     assert_eq!(response.body(), "Hello, Python!\n");
+  }
+
+  #[test]
+  fn multiple_invocations_do_not_interfere() {
+    let docroot = MockRootBuilder::default()
+      .file("hi.py", "print('hi')")
+      .build()
+      .unwrap();
+    let embed = Embed::new(&*docroot);
+    let request = RequestBuilder::new()
+      .method("GET")
+      .url("http://localhost/hi.py")
+      .build()
+      .unwrap();
+    let response1 = embed.handle(request.clone()).unwrap();
+    let response2 = embed.handle(request).unwrap();
+    assert_eq!(response1.body(), "hi\n");
+    assert_eq!(response2.body(), "hi\n");
+    Python::with_gil(|py| {
+      let sys = py.import_bound("sys").unwrap();
+      let stdout = sys.getattr("stdout").unwrap();
+      let orig = sys.getattr("__stdout__").unwrap();
+      assert!(stdout.is(&orig));
+    });
   }
 
   #[test]
