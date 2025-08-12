@@ -59,6 +59,18 @@ An experimental crate (`crates/python`) can execute Python scripts using [PyO3](
 Requests are routed to scripts relative to a docroot and their standard output is
 returned as the response body. Node.js bindings are not yet available.
 
+### Building
+
+- Supports Python 3.8–3.12. Install the matching development headers (for example,
+  `python3-dev` on Debian/Ubuntu).
+- If the default interpreter is unsuitable, set `PYO3_PYTHON=/path/to/python`
+  before building.
+- Linker errors such as `cannot find -lpython3.x` or `undefined reference to 
+  '_Py_ZeroStruct'` usually indicate missing development packages or that
+  `libpython` is not on the library search path. Installing the dev package and
+  ensuring the library is discoverable (e.g., via `LD_LIBRARY_PATH` or
+  `sudo ldconfig`) resolves these issues.
+
 ```rust
 use lang_handler::RequestBuilder;
 use python::Embed;
