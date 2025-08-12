@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use lang_handler::{Handler, Request, Response, ResponseBuilder};
 use pyo3::prelude::*;
@@ -21,10 +21,34 @@ impl Handler for Embed {
   type Error = String;
 
   fn handle(&self, request: Request) -> Result<Response, Self::Error> {
-    // Determine the path to the python script relative to docroot
-    let path = self.docroot.join(&request.url().path()[1..]);
-    let code = std::fs::read_to_string(&path)
+    let url_path = request.url().path();
+    let req_path = Path::new(url_path);
+
+    if req_path
+      .components()
+      .any(|c| matches!(c, Component::ParentDir))
+    {
+      return Err("path traversal attempt".to_string());
+    }
+
+    let rel_path = req_path.strip_prefix("/").unwrap_or(req_path);
+
+    let docroot = self
+      .docroot
+      .canonicalize()
+      .map_err(|e| format!("failed to access docroot: {e}"))?;
+
+    let full_path = docroot.join(rel_path);
+    let full_path = full_path
+      .canonicalize()
       .map_err(|e| format!("failed to read script: {e}"))?;
+
+    if !full_path.starts_with(&docroot) {
+      return Err("path traversal attempt".to_string());
+    }
+
+    let code =
+      std::fs::read_to_string(&full_path).map_err(|e| format!("failed to read script: {e}"))?;
 
     Python::with_gil(|py| -> PyResult<Response> {
       let sys = py.import("sys")?;
@@ -33,9 +57,13 @@ impl Handler for Embed {
       sys.setattr("stdout", buffer.bind(py))?;
       py.run(&code, None, None)?;
       let output: String = buffer.bind(py).call_method0("getvalue")?.extract()?;
-      let resp = ResponseBuilder::new().status(200).body(output.as_bytes()).build();
+      let resp = ResponseBuilder::new()
+        .status(200)
+        .body(output.as_bytes())
+        .build();
       Ok(resp)
-    }).map_err(|e| e.to_string())
+    })
+    .map_err(|e| e.to_string())
   }
 }
 
@@ -59,5 +87,25 @@ mod tests {
     let response = embed.handle(request).unwrap();
     assert_eq!(response.status(), 200);
     assert_eq!(response.body(), "Hello, Python!\n");
+  }
+
+  #[test]
+  fn blocks_path_traversal() {
+    let docroot = MockRootBuilder::default()
+      .file("safe.py", "print('safe')")
+      .build()
+      .unwrap();
+
+    let outside = docroot.parent().unwrap().join("secret.py");
+    std::fs::write(&outside, "print('secret')").unwrap();
+
+    let embed = Embed::new(&*docroot);
+    let request = RequestBuilder::new()
+      .method("GET")
+      .url("http://localhost/../secret.py")
+      .build()
+      .unwrap();
+
+    assert!(embed.handle(request).is_err());
   }
 }
