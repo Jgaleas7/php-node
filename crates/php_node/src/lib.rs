@@ -17,16 +17,16 @@ pub use runtime::PhpRuntime;
 #[macro_use]
 extern crate napi_derive;
 use napi::{Env, Result, Error, Status};
+use once_cell::sync::OnceCell;
 use python::Embed;
 
-// Use a lazy_static or similar for the Python embed to avoid re-initializing it
-static EMBED: once_cell::sync::OnceCell<Embed> = once_cell::sync::OnceCell::new();
+static EMBED: OnceCell<Embed> = OnceCell::new();
 
 #[napi]
-fn run_python_script(env: Env, script_path: String, docroot: String) -> Result<String> {
-    let embed = EMBED.get_or_init(|| {
-        Embed::new(&docroot).unwrap()
-    });
+fn run_python_script(script_path: String, docroot: String) -> Result<String> {
+    let embed = EMBED.get_or_try_init(|| {
+        Embed::new(&docroot).map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+    })?;
 
     match embed.handle(&script_path) {
         Ok(output) => Ok(output),
