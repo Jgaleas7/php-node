@@ -3,7 +3,8 @@ resolver = "2"
 members = [
     "crates/lang_handler",
     "crates/php",
-    "crates/php_node"
+    "crates/php_node",
+    "crates/python"
 ]
 
 # [profile.release]
